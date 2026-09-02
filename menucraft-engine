@@ -6,6 +6,7 @@ import re
 import shutil
 import tempfile
 import argparse
+import time
 
 APPS_DIR = os.path.expanduser("~/.local/share/applications")
 ICONS_DIR = os.path.expanduser("~/.local/share/icons/menucraft")
@@ -14,6 +15,10 @@ BACKUP_DIR = os.path.expanduser("~/.local/share/omarchy/menucraft/backups")
 os.makedirs(APPS_DIR, exist_ok=True)
 os.makedirs(ICONS_DIR, mode=0o755, exist_ok=True)
 os.makedirs(BACKUP_DIR, mode=0o700, exist_ok=True)
+
+MAX_SCAN_SECONDS = 1.5
+MAX_ENTRIES = 120
+MAX_FILE_BYTES = 16 * 1024 # 16 KB
 
 OEM_PROFILES = {
     "GAME GARAJ": {
@@ -81,8 +86,15 @@ OEM_PROFILES = {
     }
 }
 
-def sanitize_str(s, max_len=60):
-    return re.sub(r'[\x00-\x1f\x7f-\x9f]', '', str(s))[:max_len]
+def sanitize_field(s, max_len=60):
+    # Strip control chars, newlines, and carriage returns to prevent injection
+    return re.sub(r'[\x00-\x1f\x7f-\x9f\r\n]', '', str(s)).strip()[:max_len]
+
+def is_safe_desktop_filename(filename):
+    # Strictly allow only alphanumeric, underscores, hyphens ending in .desktop
+    if not filename or len(filename) > 64:
+        return False
+    return bool(re.match(r'^[a-zA-Z0-9_.-]+\.desktop$', filename)) and ".." not in filename and "/" not in filename
 
 def get_hardware_info():
     vendor = "Bilinmiyor"
@@ -102,7 +114,7 @@ def get_hardware_info():
 
     vendor_upper = vendor.upper()
     profile = {
-        "badge": f"💻 {vendor}",
+        "badge": f"💻 {sanitize_field(vendor, 25)}",
         "icon": "󰌢",
         "color": "#38bdf8",
         "accent": "Omarchy Cyber Blue",
@@ -115,12 +127,13 @@ def get_hardware_info():
             break
 
     return {
-        "vendor": sanitize_str(vendor, 40),
-        "model": sanitize_str(model, 40),
+        "vendor": sanitize_field(vendor, 30),
+        "model": sanitize_field(model, 30),
         "profile": profile
     }
 
 def list_installed_apps():
+    start_time = time.monotonic()
     apps = []
     search_dirs = [APPS_DIR, "/usr/share/applications"]
     seen_ids = set()
@@ -128,82 +141,112 @@ def list_installed_apps():
     for d in search_dirs:
         if not os.path.exists(d):
             continue
-        for fname in sorted(os.listdir(d)):
-            if fname.endswith(".desktop") and fname not in seen_ids:
-                fpath = os.path.join(d, fname)
-                seen_ids.add(fname)
-                try:
-                    name = fname[:-8]
-                    exec_cmd = ""
-                    icon = "application-x-executable"
-                    hidden = False
-                    categories = ""
+        try:
+            entries = os.listdir(d)
+        except Exception:
+            continue
 
-                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                        for line in f:
-                            line = line.strip()
-                            if line.startswith("Name=") and name == fname[:-8]:
-                                name = line[5:].strip()
-                            elif line.startswith("Exec="):
-                                exec_cmd = line[5:].strip()
-                            elif line.startswith("Icon="):
-                                icon = line[5:].strip()
-                            elif line.startswith("NoDisplay="):
-                                hidden = (line[10:].strip().lower() == "true")
-                            elif line.startswith("Categories="):
-                                categories = line[11:].strip()
+        for fname in sorted(entries):
+            if time.monotonic() - start_time > MAX_SCAN_SECONDS or len(apps) >= MAX_ENTRIES:
+                return apps
+            
+            if not is_safe_desktop_filename(fname) or fname in seen_ids:
+                continue
 
-                    apps.append({
-                        "id": fname,
-                        "name": sanitize_str(name, 40),
-                        "exec": sanitize_str(exec_cmd, 60),
-                        "icon": sanitize_str(icon, 30),
-                        "hidden": hidden,
-                        "categories": sanitize_str(categories, 40),
-                        "is_custom": (d == APPS_DIR)
-                    })
-                except Exception:
+            fpath = os.path.join(d, fname)
+            # Skip symlinks and special files
+            if os.path.islink(fpath) or not os.path.isfile(fpath):
+                continue
+
+            seen_ids.add(fname)
+            try:
+                # Check size bound
+                if os.path.getsize(fpath) > MAX_FILE_BYTES:
                     continue
+
+                name = fname[:-8]
+                exec_cmd = ""
+                icon = "application-x-executable"
+                hidden = False
+                categories = ""
+
+                with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("Name=") and name == fname[:-8]:
+                            name = line[5:].strip()
+                        elif line.startswith("Exec="):
+                            exec_cmd = line[5:].strip()
+                        elif line.startswith("Icon="):
+                            icon = line[5:].strip()
+                        elif line.startswith("NoDisplay="):
+                            hidden = (line[10:].strip().lower() == "true")
+                        elif line.startswith("Categories="):
+                            categories = line[11:].strip()
+
+                apps.append({
+                    "id": fname,
+                    "name": sanitize_field(name, 35),
+                    "exec": sanitize_field(exec_cmd, 50),
+                    "icon": sanitize_field(icon, 30),
+                    "hidden": hidden,
+                    "categories": sanitize_field(categories, 35),
+                    "is_custom": (d == APPS_DIR)
+                })
+            except Exception:
+                continue
     return apps
 
 def create_custom_entry(name, exec_cmd, icon_path="", category="Utility", in_terminal=False):
-    safe_name = sanitize_str(name, 40)
-    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', safe_name.lower()) + ".desktop"
+    safe_name = sanitize_field(name, 35)
+    if not safe_name:
+        return False
+    
+    clean_base = re.sub(r'[^a-zA-Z0-9_-]', '_', safe_name.lower())[:30]
+    safe_id = f"{clean_base}.desktop"
     target_path = os.path.join(APPS_DIR, safe_id)
 
+    safe_exec = sanitize_field(exec_cmd, 80)
+    safe_cat = sanitize_field(category, 30) or "Utility"
+
     assigned_icon = "application-x-executable"
-    if icon_path and os.path.isfile(icon_path):
+    if icon_path and os.path.isfile(icon_path) and not os.path.islink(icon_path):
         ext = os.path.splitext(icon_path)[1].lower()
         if ext in (".png", ".svg", ".jpg", ".jpeg"):
-            icon_dest = os.path.join(ICONS_DIR, f"{safe_id[:-8]}{ext}")
+            icon_dest = os.path.join(ICONS_DIR, f"{clean_base}{ext}")
             shutil.copyfile(icon_path, icon_dest)
             assigned_icon = icon_dest
 
     desktop_content = f"""[Desktop Entry]
 Type=Application
 Name={safe_name}
-Exec={exec_cmd}
+Exec={safe_exec}
 Icon={assigned_icon}
 Terminal={'true' if in_terminal else 'false'}
-Categories={category};
+Categories={safe_cat};
 Comment=Custom shortcut managed by MenuCraft
 X-Managed-By=MenuCraft
 """
 
     with tempfile.NamedTemporaryFile(dir=APPS_DIR, delete=False, mode="w", encoding="utf-8") as tf:
         tf.write(desktop_content)
+        tf.flush()
+        os.fsync(tf.fileno())
         temp_name = tf.name
     os.replace(temp_name, target_path)
     return True
 
 def toggle_app_visibility(app_id, hide=True):
+    if not is_safe_desktop_filename(app_id):
+        return False
+
     target_path = os.path.join(APPS_DIR, app_id)
     source_path = os.path.join("/usr/share/applications", app_id)
 
-    if not os.path.exists(target_path) and os.path.exists(source_path):
+    if not os.path.exists(target_path) and os.path.exists(source_path) and not os.path.islink(source_path):
         shutil.copyfile(source_path, target_path)
 
-    if os.path.exists(target_path):
+    if os.path.exists(target_path) and not os.path.islink(target_path):
         lines = []
         has_nodisplay = False
         with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -218,6 +261,8 @@ def toggle_app_visibility(app_id, hide=True):
 
         with tempfile.NamedTemporaryFile(dir=APPS_DIR, delete=False, mode="w", encoding="utf-8") as tf:
             tf.writelines(lines)
+            tf.flush()
+            os.fsync(tf.fileno())
             temp_name = tf.name
         os.replace(temp_name, target_path)
         return True
@@ -239,7 +284,6 @@ def main():
 
     if args.add:
         if not args.name or not args.exec_cmd:
-            print("Hata: --name ve --exec zorunludur.", file=sys.stderr)
             sys.exit(1)
         success = create_custom_entry(args.name, args.exec_cmd, args.icon, args.category, args.terminal)
         print("OK" if success else "FAIL")
@@ -259,7 +303,7 @@ def main():
         print(json.dumps(list_installed_apps()))
         sys.exit(0)
 
-    # Default: Output status and hardware JSON
+    # Default JSON
     hw = get_hardware_info()
     apps = list_installed_apps()
     custom_count = sum(1 for a in apps if a.get("is_custom"))
