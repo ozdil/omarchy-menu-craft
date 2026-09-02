@@ -14,7 +14,7 @@
   "barWidget": {
     "displayName": "MenuCraft",
     "description": "Hardware OEM brand detection and custom menu studio.",
-    "category": "Customization",
+    "category": "Desktop",
     "defaultSection": "right",
     "aliases": ["menu", "craft", "oem", "icons", "launcher", "customization"],
     "allowMultiple": false
