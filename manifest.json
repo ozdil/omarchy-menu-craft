@@ -5,11 +5,11 @@
   "version": "1.0.0",
   "author": "Ozan Özdil (ozdil)",
   "license": "MIT",
-  "description": "Hardware OEM brand detection and custom application menu customization studio for Omarchy.",
+  "description": "Hardware OEM brand detection and custom application menu studio for Omarchy.",
   "kinds": ["bar-widget"],
   "activation": "on-demand",
   "entryPoints": {
-    "barWidget": "Panel.qml"
+    "barWidget": "BarWidget.qml"
   },
   "barWidget": {
     "displayName": "MenuCraft",
