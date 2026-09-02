@@ -10,27 +10,29 @@ Panel {
   moduleName: "ozdil.menu-craft"
   ipcTarget: "ozdil.menu-craft"
 
-  property string oemVendor: "PC"
-  property string oemModel: ""
-  property string oemColor: "#38bdf8"
+  property string oemVendor: "GAME GARAJ"
+  property string oemModel: "SLAYER 4 ULTRA"
+  property string oemColor: "#ef4444"
   property int customCount: 0
+  property int totalApps: 119
 
   Process {
-    id: scanProc
-    command: ["menucraft-engine"]
+    id: engineProc
+    command: [Qt.resolvedUrl("menucraft-engine").toString().replace(/^file:\/\//, "")]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
         try {
           var parsed = JSON.parse(text)
           if (parsed.hardware) {
-            root.oemVendor = parsed.hardware.vendor || "PC"
-            root.oemModel = parsed.hardware.model || ""
+            root.oemVendor = parsed.hardware.vendor || "GAME GARAJ"
+            root.oemModel = parsed.hardware.model || "PC"
             if (parsed.hardware.profile) {
-              root.oemColor = parsed.hardware.profile.color || "#38bdf8"
+              root.oemColor = parsed.hardware.profile.color || "#ef4444"
             }
           }
           root.customCount = parsed.custom_shortcuts || 0
+          root.totalApps = parsed.total_apps || 119
         } catch(e) {}
       }
     }
@@ -42,7 +44,7 @@ Panel {
     repeat: true
     triggeredOnStart: true
     onTriggered: {
-      if (!scanProc.running) scanProc.running = true
+      if (!engineProc.running) engineProc.running = true
     }
   }
 
@@ -53,7 +55,7 @@ Panel {
     text: "󰌢 " + root.oemVendor
     color: root.oemColor
     slotSize: Style.bar.statusSlot
-    tooltipText: "MenuCraft: " + root.oemVendor + " " + root.oemModel + " (" + root.customCount + " özel kısayol)"
+    tooltipText: "MenuCraft: " + root.oemVendor + " (" + root.customCount + " Özel Kısayol)"
     onPressed: root.toggle()
   }
 
@@ -61,7 +63,7 @@ Panel {
     id: panel
     anchorItem: button
     owner: root
-    width: 440
+    width: 460
     contentHeight: panel.fittedContentHeight(mainCol.implicitHeight)
 
     Column {
@@ -71,33 +73,72 @@ Panel {
       anchors.top: parent.top
       spacing: Style.space(12)
 
-      Text {
-        text: "🎨 MenuCraft • Menü & Donanım Stüdyosu"
-        font.pixelSize: Style.font.title
-        font.bold: true
-        color: root.bar ? root.bar.foreground : "#ffffff"
-      }
-
-      Text {
-        text: "💻 Donanım: " + root.oemVendor + " (" + root.oemModel + ")"
-        color: root.oemColor
-        font.bold: true
-      }
-
-      Text {
-        text: "Menünüzdeki uygulamaları özelleştirin, kendi betiklerinizi logolarıyla ekleyin veya istemediğiniz programları gizleyin."
-        font.pixelSize: Style.font.body
-        color: "#94a3b8"
-        wrapMode: Text.WordWrap
+      // Header with OEM Badge
+      RowLayout {
         width: parent.width
+        Text {
+          text: "🎨 MenuCraft • Menü Stüdyosu"
+          font.pixelSize: Style.font.title
+          font.bold: true
+          color: root.bar ? root.bar.foreground : "#ffffff"
+          Layout.fillWidth: true
+        }
+
+        Rectangle {
+          width: 140
+          height: 26
+          radius: 13
+          color: root.oemColor
+          Text {
+            anchors.centerIn: parent
+            text: "🎮 " + root.oemVendor
+            font.pixelSize: 10
+            font.bold: true
+            color: "#ffffff"
+          }
+        }
+      }
+
+      Text {
+        text: "Donanım: " + root.oemVendor + " " + root.oemModel + " | " + root.totalApps + " Uygulama (" + root.customCount + " Özel Kısayol)"
+        font.pixelSize: Style.font.caption
+        color: "#94a3b8"
+      }
+
+      Rectangle {
+        width: parent.width
+        height: 1
+        color: "#334155"
+      }
+
+      // Action Buttons (1-Click Mouse-driven)
+      Button {
+        width: parent.width
+        text: "➕ Yeni Özel Kısayol / Betik Ekle"
+        onClicked: {
+          root.close()
+          var dashPath = Qt.resolvedUrl("menucraft-dashboard").toString().replace(/^file:\/\//, "")
+          if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation " + dashPath)
+        }
       }
 
       Button {
         width: parent.width
-        text: "⚙️ Menü & İkon Düzenleyiciyi Aç"
+        text: "🖼️ Bir Uygulamaya Özel Logo / Görsel Ata"
         onClicked: {
           root.close()
-          if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation menucraft-dashboard")
+          var dashPath = Qt.resolvedUrl("menucraft-dashboard").toString().replace(/^file:\/\//, "")
+          if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation " + dashPath)
+        }
+      }
+
+      Button {
+        width: parent.width
+        text: "👁️ İstenmeyen Uygulamaları Menüden Gizle"
+        onClicked: {
+          root.close()
+          var dashPath = Qt.resolvedUrl("menucraft-dashboard").toString().replace(/^file:\/\//, "")
+          if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation " + dashPath)
         }
       }
     }
