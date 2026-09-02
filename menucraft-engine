@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import tempfile
+import argparse
 
 APPS_DIR = os.path.expanduser("~/.local/share/applications")
 ICONS_DIR = os.path.expanduser("~/.local/share/icons/menucraft")
@@ -121,7 +122,6 @@ def get_hardware_info():
 
 def list_installed_apps():
     apps = []
-    # Check both system and local applications
     search_dirs = [APPS_DIR, "/usr/share/applications"]
     seen_ids = set()
 
@@ -223,7 +223,43 @@ def toggle_app_visibility(app_id, hide=True):
         return True
     return False
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description="MenuCraft Engine")
+    parser.add_argument("--add", action="store_true", help="Add custom shortcut")
+    parser.add_argument("--name", type=str, help="App name")
+    parser.add_argument("--exec", type=str, dest="exec_cmd", help="Execution command")
+    parser.add_argument("--icon", type=str, default="", help="Icon path")
+    parser.add_argument("--category", type=str, default="Utility", help="Category")
+    parser.add_argument("--terminal", action="store_true", help="Run in terminal")
+    parser.add_argument("--hide", type=str, help="Hide .desktop file")
+    parser.add_argument("--unhide", type=str, help="Unhide .desktop file")
+    parser.add_argument("--list", action="store_true", help="List all applications JSON")
+    
+    args = parser.parse_args()
+
+    if args.add:
+        if not args.name or not args.exec_cmd:
+            print("Hata: --name ve --exec zorunludur.", file=sys.stderr)
+            sys.exit(1)
+        success = create_custom_entry(args.name, args.exec_cmd, args.icon, args.category, args.terminal)
+        print("OK" if success else "FAIL")
+        sys.exit(0 if success else 1)
+
+    elif args.hide:
+        success = toggle_app_visibility(args.hide, hide=True)
+        print("OK" if success else "FAIL")
+        sys.exit(0 if success else 1)
+
+    elif args.unhide:
+        success = toggle_app_visibility(args.unhide, hide=False)
+        print("OK" if success else "FAIL")
+        sys.exit(0 if success else 1)
+
+    elif args.list:
+        print(json.dumps(list_installed_apps()))
+        sys.exit(0)
+
+    # Default: Output status and hardware JSON
     hw = get_hardware_info()
     apps = list_installed_apps()
     custom_count = sum(1 for a in apps if a.get("is_custom"))
@@ -237,3 +273,6 @@ if __name__ == "__main__":
         "hidden_apps": hidden_count
     }
     print(json.dumps(output))
+
+if __name__ == "__main__":
+    main()
