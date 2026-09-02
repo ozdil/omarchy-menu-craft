@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -eo pipefail
+DIR="$(cd "$(dirname "$(realpath "$0")")" >/dev/null 2>&1 && pwd)"
+SCAN_OUT="$("$DIR/menucraft-engine" 2>/dev/null || echo '{"status":"UNKNOWN"}')"
+
+python3 -c "
+import json, sys
+
+try:
+    d = json.loads('''$SCAN_OUT''')
+    hw = d.get('hardware', {})
+    vendor = hw.get('vendor', 'PC')
+    model = hw.get('model', '')
+    profile = hw.get('profile', {})
+    badge = profile.get('badge', vendor)
+    icon = profile.get('icon', '󰌢')
+    custom = d.get('custom_shortcuts', 0)
+    total = d.get('total_apps', 0)
+
+    short_vendor = vendor[:12]
+    text = f'{icon} {short_vendor}'
+    tooltip = f'🎨 MenuCraft • Masaüstü & Menü Stüdyosu\n• Donanım: {vendor} ({model})\n• Tema: {profile.get(\"accent\", \"Özel\")}\n• Özel Kısayollar: {custom}\n• Toplam Menü Öğesi: {total}\n\n[Sol Tık] Menü Düzenleyiciyi Aç'
+    
+    print(json.dumps({'text': text, 'tooltip': tooltip, 'class': 'normal'}))
+except Exception:
+    print(json.dumps({'text': '🎨 Menü', 'tooltip': 'MenuCraft Hazır', 'class': 'normal'}))
+"

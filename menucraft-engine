@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import re
+import shutil
+import tempfile
+
+APPS_DIR = os.path.expanduser("~/.local/share/applications")
+ICONS_DIR = os.path.expanduser("~/.local/share/icons/menucraft")
+BACKUP_DIR = os.path.expanduser("~/.local/share/omarchy/menucraft/backups")
+
+os.makedirs(APPS_DIR, exist_ok=True)
+os.makedirs(ICONS_DIR, mode=0o755, exist_ok=True)
+os.makedirs(BACKUP_DIR, mode=0o700, exist_ok=True)
+
+OEM_PROFILES = {
+    "GAME GARAJ": {
+        "badge": "🎮 GAME GARAJ",
+        "icon": "󰌢",
+        "color": "#ef4444",
+        "accent": "Cyber Flame Red",
+        "category": "Gaming & Workstation"
+    },
+    "MONSTER": {
+        "badge": "🦖 MONSTER",
+        "icon": "󰌢",
+        "color": "#22c55e",
+        "accent": "Monster Neon Green",
+        "category": "Gaming Laptop"
+    },
+    "LENOVO": {
+        "badge": "💻 LENOVO / THINKPAD",
+        "icon": "󰌢",
+        "color": "#e11d48",
+        "accent": "ThinkPad Classic Red",
+        "category": "Enterprise Ultrabook"
+    },
+    "ASUSTEK": {
+        "badge": "⚡ ASUS / ROG",
+        "icon": "󰌢",
+        "color": "#06b6d4",
+        "accent": "ROG Cyberpunk Cyan",
+        "category": "ROG Workstation"
+    },
+    "DELL": {
+        "badge": "🔷 DELL / ALIENWARE",
+        "icon": "󰌢",
+        "color": "#3b82f6",
+        "accent": "Alienware Quantum Blue",
+        "category": "Performance PC"
+    },
+    "HP": {
+        "badge": "💎 HP / OMEN",
+        "icon": "󰌢",
+        "color": "#0ea5e9",
+        "accent": "OMEN Shadow Sky",
+        "category": "Laptop"
+    },
+    "MSI": {
+        "badge": "🐉 MSI DRAGON",
+        "icon": "󰌢",
+        "color": "#dc2626",
+        "accent": "Dragon Blood Red",
+        "category": "Gaming Workstation"
+    },
+    "CASPER": {
+        "badge": "⚔️ CASPER / EXCALIBUR",
+        "icon": "󰌢",
+        "color": "#8b5cf6",
+        "accent": "Excalibur Royal Purple",
+        "category": "Gaming PC"
+    },
+    "APPLE": {
+        "badge": "🍎 APPLE MACBOOK",
+        "icon": "󰀵",
+        "color": "#94a3b8",
+        "accent": "Space Gray Minimal",
+        "category": "Silicon Hardware"
+    }
+}
+
+def sanitize_str(s, max_len=60):
+    return re.sub(r'[\x00-\x1f\x7f-\x9f]', '', str(s))[:max_len]
+
+def get_hardware_info():
+    vendor = "Bilinmiyor"
+    model = "Linux Cihazı"
+    try:
+        if os.path.exists("/sys/class/dmi/id/sys_vendor"):
+            with open("/sys/class/dmi/id/sys_vendor", "r", encoding="utf-8", errors="ignore") as f:
+                vendor = f.read().strip()
+    except Exception:
+        pass
+    try:
+        if os.path.exists("/sys/class/dmi/id/product_name"):
+            with open("/sys/class/dmi/id/product_name", "r", encoding="utf-8", errors="ignore") as f:
+                model = f.read().strip()
+    except Exception:
+        pass
+
+    vendor_upper = vendor.upper()
+    profile = {
+        "badge": f"💻 {vendor}",
+        "icon": "󰌢",
+        "color": "#38bdf8",
+        "accent": "Omarchy Cyber Blue",
+        "category": "Personal Computer"
+    }
+
+    for key, val in OEM_PROFILES.items():
+        if key in vendor_upper:
+            profile = val
+            break
+
+    return {
+        "vendor": sanitize_str(vendor, 40),
+        "model": sanitize_str(model, 40),
+        "profile": profile
+    }
+
+def list_installed_apps():
+    apps = []
+    # Check both system and local applications
+    search_dirs = [APPS_DIR, "/usr/share/applications"]
+    seen_ids = set()
+
+    for d in search_dirs:
+        if not os.path.exists(d):
+            continue
+        for fname in sorted(os.listdir(d)):
+            if fname.endswith(".desktop") and fname not in seen_ids:
+                fpath = os.path.join(d, fname)
+                seen_ids.add(fname)
+                try:
+                    name = fname[:-8]
+                    exec_cmd = ""
+                    icon = "application-x-executable"
+                    hidden = False
+                    categories = ""
+
+                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line.startswith("Name=") and name == fname[:-8]:
+                                name = line[5:].strip()
+                            elif line.startswith("Exec="):
+                                exec_cmd = line[5:].strip()
+                            elif line.startswith("Icon="):
+                                icon = line[5:].strip()
+                            elif line.startswith("NoDisplay="):
+                                hidden = (line[10:].strip().lower() == "true")
+                            elif line.startswith("Categories="):
+                                categories = line[11:].strip()
+
+                    apps.append({
+                        "id": fname,
+                        "name": sanitize_str(name, 40),
+                        "exec": sanitize_str(exec_cmd, 60),
+                        "icon": sanitize_str(icon, 30),
+                        "hidden": hidden,
+                        "categories": sanitize_str(categories, 40),
+                        "is_custom": (d == APPS_DIR)
+                    })
+                except Exception:
+                    continue
+    return apps
+
+def create_custom_entry(name, exec_cmd, icon_path="", category="Utility", in_terminal=False):
+    safe_name = sanitize_str(name, 40)
+    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', safe_name.lower()) + ".desktop"
+    target_path = os.path.join(APPS_DIR, safe_id)
+
+    assigned_icon = "application-x-executable"
+    if icon_path and os.path.isfile(icon_path):
+        ext = os.path.splitext(icon_path)[1].lower()
+        if ext in (".png", ".svg", ".jpg", ".jpeg"):
+            icon_dest = os.path.join(ICONS_DIR, f"{safe_id[:-8]}{ext}")
+            shutil.copyfile(icon_path, icon_dest)
+            assigned_icon = icon_dest
+
+    desktop_content = f"""[Desktop Entry]
+Type=Application
+Name={safe_name}
+Exec={exec_cmd}
+Icon={assigned_icon}
+Terminal={'true' if in_terminal else 'false'}
+Categories={category};
+Comment=Custom shortcut managed by MenuCraft
+X-Managed-By=MenuCraft
+"""
+
+    with tempfile.NamedTemporaryFile(dir=APPS_DIR, delete=False, mode="w", encoding="utf-8") as tf:
+        tf.write(desktop_content)
+        temp_name = tf.name
+    os.replace(temp_name, target_path)
+    return True
+
+def toggle_app_visibility(app_id, hide=True):
+    target_path = os.path.join(APPS_DIR, app_id)
+    source_path = os.path.join("/usr/share/applications", app_id)
+
+    if not os.path.exists(target_path) and os.path.exists(source_path):
+        shutil.copyfile(source_path, target_path)
+
+    if os.path.exists(target_path):
+        lines = []
+        has_nodisplay = False
+        with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if line.startswith("NoDisplay="):
+                    lines.append(f"NoDisplay={'true' if hide else 'false'}\n")
+                    has_nodisplay = True
+                else:
+                    lines.append(line)
+        if not has_nodisplay:
+            lines.append(f"NoDisplay={'true' if hide else 'false'}\n")
+
+        with tempfile.NamedTemporaryFile(dir=APPS_DIR, delete=False, mode="w", encoding="utf-8") as tf:
+            tf.writelines(lines)
+            temp_name = tf.name
+        os.replace(temp_name, target_path)
+        return True
+    return False
+
+if __name__ == "__main__":
+    hw = get_hardware_info()
+    apps = list_installed_apps()
+    custom_count = sum(1 for a in apps if a.get("is_custom"))
+    hidden_count = sum(1 for a in apps if a.get("hidden"))
+
+    output = {
+        "status": "OK",
+        "hardware": hw,
+        "total_apps": len(apps),
+        "custom_shortcuts": custom_count,
+        "hidden_apps": hidden_count
+    }
+    print(json.dumps(output))

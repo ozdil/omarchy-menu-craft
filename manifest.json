@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "ozdil.menu-craft",
+  "name": "MenuCraft",
+  "version": "1.0.0",
+  "author": "Ozan Özdil (ozdil)",
+  "license": "MIT",
+  "description": "Hardware OEM brand detection and custom application menu customization studio for Omarchy.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "MenuCraft",
+    "description": "Hardware OEM brand detection and custom menu studio.",
+    "category": "Customization",
+    "defaultSection": "right",
+    "aliases": ["menu", "craft", "oem", "icons", "launcher", "customization"],
+    "allowMultiple": false
+  }
+}
